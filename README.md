@@ -53,6 +53,20 @@ generalization across team sizes):
 python test.py --path <log_dir>/VMASCollaborativeTransportLidar/dgppo/<run> --epi 5 -n 5
 ```
 
+### Pretrained policy
+
+The policy behind the reported results is checked in, so the numbers can be
+reproduced without retraining:
+
+```bash
+python test.py --path pretrained/VMASCollaborativeTransportLidar_dgppo_seed0 --epi 5 -n 5
+```
+
+Expect roughly `reward -7.78 / cost -0.508` on episode 0 and
+`reward -5.68 / cost -0.549` on episode 1 at seed 1234, both at a 100% safe
+rate. Small reward deviations (order 0.01) are ordinary CPU/GPU floating-point
+differences; the cost and safe-rate figures should match exactly.
+
 ## Environment
 
 Tested with Python 3.10 and JAX 0.6.2 (CPU and CUDA). See
