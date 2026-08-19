@@ -6,7 +6,7 @@ from .base import MultiAgentEnv
 from dgppo.env.mpe import MPETarget, MPESpread, MPELine, MPEFormation, MPECorridor, MPEConnectSpread
 from dgppo.env.lidar_env import LidarSpread, LidarTarget, LidarLine, LidarBicycleTarget
 from dgppo.env.vmas import VMASWheel, VMASReverseTransport, VMASCollaborativeTransport
-from dgppo.env.vmas_lidar import VMASCollaborativeTransportLidar, VMASCollaborativeTransportLidar_Determined
+from dgppo.env.vmas_lidar import VMASCollaborativeTransportLidar
 
 
 ENV = {
@@ -24,8 +24,7 @@ ENV = {
     'VMASReverseTransport': VMASReverseTransport,
     'VMASWheel': VMASWheel,
     'VMASCollaborativeTransport': VMASCollaborativeTransport,
-    'VMASCollaborativeTransportLidar': VMASCollaborativeTransportLidar,
-    'VMASCollaborativeTransportLidar_Determined': VMASCollaborativeTransportLidar_Determined
+    'VMASCollaborativeTransportLidar': VMASCollaborativeTransportLidar
 }
 
 
