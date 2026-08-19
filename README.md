@@ -16,7 +16,7 @@ Learning With Zero-Shot Sim-to-Real Transfer,"**
 [Paper](https://ieeexplore.ieee.org/abstract/document/11614755) •
 [Citation](#citation) •
 [Installation](#installation-quick-start) •
-[Reproducing the paper](#reproducing-the-paper-results) •
+[Usage](#usage) •
 [What is new vs DGPPO](#what-is-new-relative-to-upstream-dgppo)
 
 </div>
@@ -117,34 +117,39 @@ pip install -e .
 `requirements.txt` pins `jax[cuda]`. For a CPU-only machine install plain
 `jax` instead, or prefix any command below with `JAX_PLATFORMS=cpu`.
 
-Check the install by replaying the released policy (see below) — it needs no
-training and finishes in under a minute.
+Check the install by running the example checkpoint (see [Usage](#usage)) — it
+needs no training and finishes in under a minute.
 
-## Reproducing the paper results
+## Usage
 
-### Evaluate the released policy
+### Run the example checkpoint
 
-The trained policy behind the reported results is checked in, so the numbers
-can be reproduced without retraining:
+An example trained policy is included under `pretrained/`, so the environment
+and a working policy can be tried without training anything:
 
 ```bash
 python test.py --path pretrained/VMASCollaborativeTransportLidar_dgppo_seed0 --epi 5 -n 5
 ```
 
-At the default seed (1234) this prints `reward -7.780 / cost -0.508` for
-episode 0 and `reward -5.675 / cost -0.549` for episode 1, both at a 100% safe
-rate. Deviations of order 0.01 in reward are ordinary CPU/GPU floating-point
-differences; cost and safe rate should match exactly.
+This is provided as a runnable example of a trained policy, not as a script
+that regenerates the tables in the paper. The paper's numbers are aggregate
+statistics over many episodes and seeds; a short run like the one above reports
+individual episodes and will not match them directly.
 
-Because team size is resampled per episode, the `n_real=...` field in the
-output is the number of drones actually active, which will vary. Passing a
-different `-n` than the policy was trained with is how the scalability results
-were produced.
+As an installation check, the first two episodes at the default seed (1234)
+should print roughly `reward -7.780 / cost -0.508` and
+`reward -5.675 / cost -0.549`, both at a 100% safe rate. Treat these as a
+signal that the install is behaving, not as reported results: reward may drift
+by around 0.01 between CPU and GPU.
+
+Because team size is resampled per episode, the `n_real=...` field is the
+number of drones actually active, which varies from episode to episode.
+Passing a different `-n` runs the same policy at a different team size.
 
 Add `--no-video` to skip rendering, or drop it to write an MP4 per episode
 under `<path>/videos/`.
 
-### Train from scratch
+### Train a policy
 
 ```bash
 python train.py \
@@ -160,8 +165,8 @@ python train.py \
 
 Note that `--max-stiffness 0.3` and `--agent-vertex-constraint 0.2` differ from
 the defaults in `make_env`, so pass them explicitly. Every run writes its fully
-resolved configuration to `<log_dir>/.../config.yaml`; the config for the
-released policy is in `pretrained/VMASCollaborativeTransportLidar_dgppo_seed0/`.
+resolved configuration to `<log_dir>/.../config.yaml`; the config used for the
+example checkpoint is in `pretrained/VMASCollaborativeTransportLidar_dgppo_seed0/`.
 
 Runs are logged to Weights & Biases when a connection is available and fall
 back to offline mode otherwise. Set `WANDB_MODE=disabled` to turn it off.
@@ -176,7 +181,7 @@ back to offline mode otherwise. Set `WANDB_MODE=disabled` to turn it off.
 | `dgppo/env/utils.py` | `get_lidar` extended to circles and polygons; `get_node_goal_rng` reworked for boundary margins and minimum agent-goal travel |
 | `dgppo/env/__init__.py` | Environment registration plus the reward, stiffness and vertex-constraint knobs on `make_env` |
 | `train.py`, `test.py` | Command-line flags for the above, plus evaluation and CSV/plot export |
-| `pretrained/` | The policy behind the reported results, with its resolved config |
+| `pretrained/` | An example trained policy, with its resolved config |
 
 ## Relationship to DGPPO
 
