@@ -1,5 +1,4 @@
 import jax.numpy as jnp
-import jax
 
 from .jax_types import Pos2
 import jax.lax as lax
@@ -60,11 +59,11 @@ class Object(Shape):
 
     # def get_geometry(self) -> "Geom":
     #     from vmas.simulator import rendering
-    #     
+    #
     #     # Calculate vertices of equilateral triangle
     #     angles = jnp.array([0, 2*jnp.pi/3, 4*jnp.pi/3])
-    #     vertices = [(self.length * jnp.cos(angle), 
-    #                 self.length * jnp.sin(angle)) 
+    #     vertices = [(self.length * jnp.cos(angle),
+    #                 self.length * jnp.sin(angle))
     #                for angle in angles]
     #     return rendering.make_polygon(vertices)
 

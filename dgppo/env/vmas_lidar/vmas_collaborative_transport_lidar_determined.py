@@ -1,31 +1,27 @@
 import pathlib
-import einops as ei
 import jax
-import jax.lax as lax
 import jax.numpy as jnp
 import matplotlib
 matplotlib.use('Agg')  # Use non-GUI backend to avoid threading issues
 import matplotlib.pyplot as plt
 import numpy as np
-import jax.random as jr
 import functools as ft
 from jaxtyping import Float
 
-from typing import NamedTuple, Optional, Tuple, Dict, List
+from typing import NamedTuple, Optional, Tuple
 from matplotlib.animation import FuncAnimation
-from matplotlib.collections import LineCollection, PatchCollection
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
+from matplotlib.collections import PatchCollection
 from .physax.entity import Agent, Entity
-from .physax.shapes import Box, Sphere, Object
+from .physax.shapes import Sphere, Object
 from .physax.world import World
 from dgppo.trainer.data import Rollout
 from matplotlib.patches import Polygon
 from dgppo.utils.graph import EdgeBlock, GetGraph, GraphsTuple
-from dgppo.utils.typing import Action, Array, Cost, Done, Info, Reward, State, PRNGKey, Pos2d
+from dgppo.utils.typing import Action, Array, Cost, Done, Info, Reward, State, Pos2d
 from dgppo.utils.utils import save_anim, tree_index, jax_vmap, merge01
 from dgppo.env.base import MultiAgentEnv
-from dgppo.env.utils import get_node_goal_rng, get_lidar
-from dgppo.env.obstacle import Rectangle, RECTANGLE, Obstacle, Circle, CIRCLE
+from dgppo.env.utils import get_lidar
+from dgppo.env.obstacle import Rectangle, Obstacle, Circle
 import os
 os.environ['JAX_PLATFORM_NAME'] = 'cpu'
 os.environ['MPLBACKEND'] = 'Agg'  # Force non-GUI backend

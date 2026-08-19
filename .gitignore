@@ -7,3 +7,10 @@ logs
 logs/
 
 
+
+# evaluation artifacts: test.py writes these into its --path, which for the
+# checked-in policy is inside the repo
+pretrained/**/videos/
+pretrained/**/*.csv
+pretrained/**/*.png
+*.mp4

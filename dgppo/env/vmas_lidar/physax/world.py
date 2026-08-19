@@ -1,18 +1,13 @@
 import functools as ft
-from typing import Callable, Optional
 
-import ipdb
 import jax
-import jax.debug as jd
 import jax.numpy as jnp
 import numpy as np
-from typing_extensions import Self
-from jax import jit
 
 from .entity import Agent, Entity
 from .geometry import get_closest_point_box, get_closest_point_line
 from .jax_types import Pos2, Vec1, Vec2
-from .shapes import Box, Line, Shape, Sphere, Object
+from .shapes import Box, Line, Sphere, Object
 from .vmas_utils import clamp_with_norm, compute_torque
 
 
@@ -120,18 +115,18 @@ class World:
                 vel = vel * (1 - entity.drag)
             else:
                 vel = vel * (1 - self.drag)
-        
+
         # Calculate acceleration
         force = forces_dict.get(entity, jnp.zeros(2))
         accel = force / entity.mass
 
         # Debug the velocity update step by step
         vel_update = accel * self.sub_dt
-        
+
         # Store the old velocity for comparison
         old_vel = vel
         vel = vel + vel_update
-        
+
         if entity.max_speed is not None:
             vel = clamp_with_norm(vel, entity.max_speed)
         if entity.v_range is not None:
@@ -237,17 +232,17 @@ class World:
                 # Add the pair to the correct list.
                 if isinstance(entity_a.shape, Sphere) and isinstance(entity_b.shape, Sphere):
                     s_s.append((entity_a, entity_b))
-                
-                elif isinstance(entity_a.shape, Sphere) and isinstance(entity_b.shape, Object):                    
+
+                elif isinstance(entity_a.shape, Sphere) and isinstance(entity_b.shape, Object):
                     a_o.append((entity_a, entity_b))
-                elif isinstance(entity_a.shape, Object) and isinstance(entity_b.shape, Sphere):                    
+                elif isinstance(entity_a.shape, Object) and isinstance(entity_b.shape, Sphere):
                     a_o.append((entity_b, entity_a))
                 else:
                     raise AssertionError()
 
         contact_forces_dict = {}
         contact_torques_dict = {}
-        
+
         self._agent_object_interaction(a_o, contact_forces_dict, contact_torques_dict)
         # self._sphere_sphere_collision(s_s, contact_forces_dict, contact_torques_dict)
         # self._sphere_line_collision(l_s, contact_forces_dict, contact_torques_dict)
@@ -317,7 +312,7 @@ class World:
 
         # Create a mask: valid if agent index is less than self.real_num_agents.
         valid_mask = (agent_indices < self.real_num_agents).astype(jnp.float32)  # shape (n_pairs,)
-        
+
         # Apply mask to forces and torque.e
         force_on_agent = force_on_agent * valid_mask[:, None]
         force_on_vertex = force_on_vertex * valid_mask[:, None]
@@ -334,7 +329,7 @@ class World:
                 forces_dict[obj] = forces_dict.get(obj, jnp.zeros(2, dtype=jnp.float32)) + force_on_vertex[i]
             if obj.rotatable:
                 torques_dict[obj] = torques_dict.get(obj, jnp.zeros(1, dtype=jnp.float32)) + jnp.array([torque[i]], dtype=jnp.float32)
-        
+
     # def _agent_object_interaction(
     #     self, a_o: list[tuple[Entity, Entity]], forces_dict: dict[Entity, Vec2], torques_dict: dict[Entity, Vec1]
     # ):

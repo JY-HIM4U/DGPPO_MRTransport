@@ -262,14 +262,14 @@ def test(args):
         #     f.write(f"{env.num_agents},{args.epi},{env.max_episode_steps},"
         #             f"{env.area_size},{env.params['n_obs']},"
         #             f"{safe_mean * 100:.3f},{safe_std * 100:.3f}\n")
-        
+
         # Save rollout actions as CSV files
         suffix = f"_{args.num_agents}" if args.num_agents is not None else ""
         seed_suffix = f"_seed{args.seed}"
         actions_dir = os.path.join(path, f"actions_successrate{suffix}{seed_suffix}")
         if not os.path.exists(actions_dir):
             os.makedirs(actions_dir)
-        
+
         for i_epi, rollout in enumerate(rollouts):
             # Convert rollout.actions from (num_steps, num_agents, action_dim) to DataFrame
             actions_array = np.array(rollout.actions)  # Shape: (num_steps, num_agents, action_dim)
@@ -281,41 +281,41 @@ def test(args):
             # print(f"rollout.graph.env_states.a_pos[0]: {rollout.graph.env_states.a_pos[0]}")  # First timestep
             # print(f"rollout.graph.env_states.agent[0]: {rollout.graph.env_states.agent[0]}")  # First timestep
             num_steps, num_agents, action_dim = actions_array.shape
-            
+
             # Reshape to (num_steps, num_agents * action_dim)
             actions_reshaped = actions_array.reshape(num_steps, num_agents * action_dim)
-            
+
             # Create column names for actions
             action_column_names = []
             for agent in range(num_agents):
                 for dim in range(action_dim):
                     action_column_names.append(f"agent{agent}_action{dim}")
-            
+
             # Create DataFrame for actions
             df_actions = pd.DataFrame(actions_reshaped, columns=action_column_names)
-            
+
             # Save actions as CSV
             csv_filename = f"episode_{i_epi:02d}_actions.csv"
             csv_path = os.path.join(actions_dir, csv_filename)
             df_actions.to_csv(csv_path, index=False)
             print(f"Saved actions to: {csv_path}")
-            
+
             # Save positions and velocities
             # Reshape positions and velocities
             positions_reshaped = agent_position.reshape(num_steps, num_agents * 2)
             velocities_reshaped = agent_velocity.reshape(num_steps, num_agents * 2)
-            
+
             # Create column names for positions and velocities
             pos_column_names = []
             vel_column_names = []
             for agent in range(num_agents):
                 pos_column_names.extend([f"agent{agent}_pos_x", f"agent{agent}_pos_y"])
                 vel_column_names.extend([f"agent{agent}_vel_x", f"agent{agent}_vel_y"])
-            
+
             # Create DataFrames
             df_positions = pd.DataFrame(positions_reshaped, columns=pos_column_names)
             df_velocities = pd.DataFrame(velocities_reshaped, columns=vel_column_names)
-            
+
             # Save positions and velocities as CSV
             pos_csv_filename = f"episode_{i_epi:02d}_positions.csv"
             vel_csv_filename = f"episode_{i_epi:02d}_velocities.csv"
@@ -325,156 +325,156 @@ def test(args):
             df_velocities.to_csv(vel_csv_path, index=False)
             print(f"Saved positions to: {pos_csv_path}")
             print(f"Saved velocities to: {vel_csv_path}")
-            
+
             # Create comprehensive CSV with all data (actions, positions, velocities)
             comprehensive_data = np.concatenate([
                 actions_reshaped,      # Actions: (num_steps, num_agents * action_dim)
                 positions_reshaped,    # Positions: (num_steps, num_agents * 2)
                 velocities_reshaped    # Velocities: (num_steps, num_agents * 2)
             ], axis=1)
-            
+
             # Create comprehensive column names
             comprehensive_column_names = []
             comprehensive_column_names.extend(action_column_names)  # Actions
-            comprehensive_column_names.extend(pos_column_names)     # Positions  
+            comprehensive_column_names.extend(pos_column_names)     # Positions
             comprehensive_column_names.extend(vel_column_names)     # Velocities
-            
+
             # Create comprehensive DataFrame
             df_comprehensive = pd.DataFrame(comprehensive_data, columns=comprehensive_column_names)
-            
+
             # Save comprehensive CSV
             comprehensive_csv_filename = f"episode_{i_epi:02d}_comprehensive.csv"
             comprehensive_csv_path = os.path.join(actions_dir, comprehensive_csv_filename)
             df_comprehensive.to_csv(comprehensive_csv_path, index=False)
             print(f"Saved comprehensive data to: {comprehensive_csv_path}")
-            
+
             # Create and save action plots
             fig, axes = plt.subplots(num_agents, 1, figsize=(12, 3*num_agents))
             if num_agents == 1:
                 axes = [axes]  # Make it iterable for single agent
-            
+
             timesteps = np.arange(num_steps)
-            
+
             for agent in range(num_agents):
                 ax = axes[agent]
                 for dim in range(action_dim):
-                    ax.plot(timesteps, actions_array[:, agent, dim], 
+                    ax.plot(timesteps, actions_array[:, agent, dim],
                            label=f'Action {dim}', linewidth=1.5)
-                
+
                 ax.set_title(f'Agent {agent} Actions')
                 ax.set_xlabel('Time Step')
                 ax.set_ylabel('Action Value')
                 ax.legend()
                 ax.grid(True, alpha=0.3)
-            
+
             plt.tight_layout()
-            
+
             # Save action plot
             plot_filename = f"episode_{i_epi:02d}_actions.png"
             plot_path = os.path.join(actions_dir, plot_filename)
             plt.savefig(plot_path, dpi=150, bbox_inches='tight')
             plt.close()  # Close to free memory
             print(f"Saved action plot to: {plot_path}")
-            
+
             # Create and save position plots
             fig, axes = plt.subplots(num_agents, 1, figsize=(12, 3*num_agents))
             if num_agents == 1:
                 axes = [axes]  # Make it iterable for single agent
-            
+
             for agent in range(num_agents):
                 ax = axes[agent]
-                ax.plot(timesteps, agent_position[:, agent, 0], 
+                ax.plot(timesteps, agent_position[:, agent, 0],
                        label='Position X', linewidth=1.5, color='blue')
-                ax.plot(timesteps, agent_position[:, agent, 1], 
+                ax.plot(timesteps, agent_position[:, agent, 1],
                        label='Position Y', linewidth=1.5, color='red')
-                
+
                 ax.set_title(f'Agent {agent} Positions')
                 ax.set_xlabel('Time Step')
                 ax.set_ylabel('Position')
                 ax.legend()
                 ax.grid(True, alpha=0.3)
-            
+
             plt.tight_layout()
-            
+
             # Save position plot
             pos_plot_filename = f"episode_{i_epi:02d}_positions.png"
             pos_plot_path = os.path.join(actions_dir, pos_plot_filename)
             plt.savefig(pos_plot_path, dpi=150, bbox_inches='tight')
             plt.close()  # Close to free memory
             print(f"Saved position plot to: {pos_plot_path}")
-            
+
             # Create and save velocity plots
             fig, axes = plt.subplots(num_agents, 1, figsize=(12, 3*num_agents))
             if num_agents == 1:
                 axes = [axes]  # Make it iterable for single agent
-            
+
             for agent in range(num_agents):
                 ax = axes[agent]
-                ax.plot(timesteps, agent_velocity[:, agent, 0], 
+                ax.plot(timesteps, agent_velocity[:, agent, 0],
                        label='Velocity X', linewidth=1.5, color='green')
-                ax.plot(timesteps, agent_velocity[:, agent, 1], 
+                ax.plot(timesteps, agent_velocity[:, agent, 1],
                        label='Velocity Y', linewidth=1.5, color='orange')
-                
+
                 ax.set_title(f'Agent {agent} Velocities')
                 ax.set_xlabel('Time Step')
                 ax.set_ylabel('Velocity')
                 ax.legend()
                 ax.grid(True, alpha=0.3)
-            
+
             plt.tight_layout()
-            
+
             # Save velocity plot
             vel_plot_filename = f"episode_{i_epi:02d}_velocities.png"
             vel_plot_path = os.path.join(actions_dir, vel_plot_filename)
             plt.savefig(vel_plot_path, dpi=150, bbox_inches='tight')
             plt.close()  # Close to free memory
             print(f"Saved velocity plot to: {vel_plot_path}")
-            
+
             # Create comprehensive plot with subplots arranged in columns (actions, positions, velocities)
             fig, axes = plt.subplots(num_agents, 3, figsize=(18, 3*num_agents))
             if num_agents == 1:
                 axes = axes.reshape(1, -1)  # Make it 2D for single agent
-            
+
             timesteps = np.arange(num_steps)
-            
+
             for agent in range(num_agents):
                 # Actions subplot (column 0)
                 ax_actions = axes[agent, 0]
                 for dim in range(action_dim):
-                    ax_actions.plot(timesteps, actions_array[:, agent, dim], 
+                    ax_actions.plot(timesteps, actions_array[:, agent, dim],
                                    label=f'Action {dim}', linewidth=1.5)
                 ax_actions.set_title(f'Agent {agent} Actions')
                 ax_actions.set_xlabel('Time Step')
                 ax_actions.set_ylabel('Action Value')
                 ax_actions.legend()
                 ax_actions.grid(True, alpha=0.3)
-                
+
                 # Positions subplot (column 1)
                 ax_positions = axes[agent, 1]
-                ax_positions.plot(timesteps, agent_position[:, agent, 0], 
+                ax_positions.plot(timesteps, agent_position[:, agent, 0],
                                  label='Position X', linewidth=1.5, color='blue')
-                ax_positions.plot(timesteps, agent_position[:, agent, 1], 
+                ax_positions.plot(timesteps, agent_position[:, agent, 1],
                                  label='Position Y', linewidth=1.5, color='red')
                 ax_positions.set_title(f'Agent {agent} Positions')
                 ax_positions.set_xlabel('Time Step')
                 ax_positions.set_ylabel('Position')
                 ax_positions.legend()
                 ax_positions.grid(True, alpha=0.3)
-                
+
                 # Velocities subplot (column 2)
                 ax_velocities = axes[agent, 2]
-                ax_velocities.plot(timesteps, agent_velocity[:, agent, 0], 
+                ax_velocities.plot(timesteps, agent_velocity[:, agent, 0],
                                   label='Velocity X', linewidth=1.5, color='green')
-                ax_velocities.plot(timesteps, agent_velocity[:, agent, 1], 
+                ax_velocities.plot(timesteps, agent_velocity[:, agent, 1],
                                   label='Velocity Y', linewidth=1.5, color='orange')
                 ax_velocities.set_title(f'Agent {agent} Velocities')
                 ax_velocities.set_xlabel('Time Step')
                 ax_velocities.set_ylabel('Velocity')
                 ax_velocities.legend()
                 ax_velocities.grid(True, alpha=0.3)
-            
+
             plt.tight_layout()
-            
+
             # Save comprehensive plot
             comprehensive_plot_filename = f"episode_{i_epi:02d}_comprehensive.png"
             comprehensive_plot_path = os.path.join(actions_dir, comprehensive_plot_filename)
