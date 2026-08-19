@@ -21,6 +21,16 @@ Learning With Zero-Shot Sim-to-Real Transfer,"**
 
 </div>
 
+<div align="center">
+
+<img src="./media/transport/hardware.gif" alt="Hardware experiment: two groups of drones each transporting a payload on cables" width="88%"/>
+
+**Multi-group multi-drone transportation experiment.**
+
+*Playback is 4x real time.*
+
+</div>
+
 ## Overview
 
 A team of drones carries a shared payload on compliant cables and must deliver
@@ -44,6 +54,19 @@ The simulation is planar: each drone is a double integrator commanded in
 acceleration, the payload is a rigid body with position, velocity, orientation
 and angular velocity, and each drone observes the world through a 32-beam LiDAR
 of which the nearest 8 returns enter the graph.
+
+<div align="center">
+
+<img src="./media/transport/sim_3drones.gif" alt="Simulation with 3 drones" width="43%"/>
+&nbsp;&nbsp;
+<img src="./media/transport/sim_5drones.gif" alt="Simulation with 5 drones" width="43%"/>
+
+*One policy, two team sizes: 3 drones (left) and 5 drones (right), both rendered
+from the checkpoint in `pretrained/`. Coloured discs are drones, the small
+shaded polygon is the payload, dark red discs are obstacles. Both episodes
+finish collision-free.*
+
+</div>
 
 The learning backbone is **DGPPO** ([MIT-REALM/dgppo](https://github.com/MIT-REALM/dgppo),
 ICLR 2025). This repository is derived from it: the upstream README is retained
