@@ -10,7 +10,7 @@ from jax.lax import while_loop
 
 from ..utils.typing import Array, Radius, BoolScalar, Pos, State, Action, PRNGKey
 from ..utils.utils import merge01
-from dgppo.env.obstacle import Obstacle, Rectangle, Cuboid, Sphere, Circle
+from dgppo.env.obstacle import Obstacle, Rectangle, Cuboid, Sphere, Circle, Polygon
 
 
 def RK4_step(x_dot_fn: Callable, x: State, u: Action, dt: float) -> Array:
@@ -47,8 +47,8 @@ def lqr(
 
 
 def get_lidar(start_point: Pos, obstacles: Obstacle, num_beams: int, sense_range: float, max_returns: int = 32):
-    if isinstance(obstacles, Rectangle) or isinstance(obstacles, Circle):
-        # For both Rectangle and Circle (2D obstacles), use the same 2D ray pattern
+    if isinstance(obstacles, (Rectangle, Circle, Polygon)):
+        # All 2D obstacles use the same 2D ray pattern
         thetas = jnp.linspace(-np.pi, np.pi - 2 * np.pi / num_beams, num_beams)
         starts = start_point[None, :].repeat(num_beams, axis=0)
         ends = jnp.stack(
@@ -146,6 +146,7 @@ def get_node_goal_rng(
         n: int,
         min_dist: float,
         obstacles: Obstacle = None,
+        min_travel: float = None,
         side_length_y: float = None,
         max_travel: float = None,
         side_length_z: float = None
@@ -213,8 +214,14 @@ def get_node_goal_rng(
         agent_distances = jnp.linalg.norm(all_states - goal, axis=1)
         agent_distances = jnp.where(valid_agents, agent_distances, jnp.ones_like(agent_distances) * 1e10)
         dist_min_agents = jnp.min(agent_distances)
-        collide_with_agents = dist_min_agents < min_dist
-        
+        # min_travel is optional; without it there is no minimum start-to-goal
+        # separation to enforce (comparing against None raises under trace)
+        if min_travel is None:
+            collide_with_agents = jnp.array(False)
+        else:
+            collide_with_agents = dist_min_agents < min_travel
+
+
         # Combine collision checks
         collide = collide_with_goals | collide_with_agents
         
@@ -257,6 +264,132 @@ def get_node_goal_rng(
         agent_id = (1 - (n_iter_agent >= max_iter)) * (1 - (n_iter_goal >= max_iter)) * agent_id
         all_states = (1 - (n_iter_agent >= max_iter)) * (1 - (n_iter_goal >= max_iter)) * all_states
         all_goals = (1 - (n_iter_agent >= max_iter)) * (1 - (n_iter_goal >= max_iter)) * all_goals
+
+        return agent_id, this_key, all_states, all_goals
+
+    def reset_not_terminate(reset_input: Tuple[int, Array, Array, Array]):
+        # agent_id, key, states, goals
+        agent_id, this_key, all_states, all_goals = reset_input
+        return agent_id < n
+
+    _, _, states, goals = while_loop(
+        cond_fun=reset_not_terminate, body_fun=reset_body, init_val=(0, key, states, goals))
+
+    return states, goals
+
+
+
+def get_node_goal_rng_fixedstate(
+        key: PRNGKey,
+        side_length: float,
+        dim: int,
+        n: int,
+        min_dist: float,
+        obstacles: Obstacle = None,
+        min_travel: float = None,
+        side_length_y: float = None,
+        max_travel: float = None,
+        side_length_z: float = None,
+        state_fixed: Array = None,
+        goal_override: Array = None
+) -> [Pos, Pos]:
+    max_iter = 1024  # maximum number of iterations to find a valid initial state/goal
+    states = jnp.zeros((n, dim))
+    goals = jnp.zeros((n, dim))
+    side_length_y = side_length if side_length_y is None else side_length_y
+    side_length_z = side_length if side_length_z is None else side_length_z
+
+    if dim == 2:
+        max_side = jnp.array([side_length, side_length_y])
+    elif dim == 3:
+        max_side = jnp.array([side_length, side_length_y, side_length_z])
+    else:
+        raise NotImplementedError
+
+    # 1) Fix states to provided value or default [0.2, 0.2, ...]
+    if state_fixed is None:
+        base = jnp.array([0.2, 0.2] + ([0.0] * max(0, dim - 2)), dtype=jnp.float32)[:dim]
+    else:
+        base = jnp.array(state_fixed, dtype=jnp.float32)
+        base = base[:dim] if base.ndim == 1 else base.reshape(-1)[:dim]
+    states = jnp.tile(base[None, :], (n, 1))
+
+    # 2) If user provided explicit goals, use them directly (broadcast if needed)
+    if goal_override is not None:
+        goals_arr = jnp.array(goal_override, dtype=jnp.float32)
+        if goals_arr.ndim == 1:
+            goals_arr = jnp.tile(goals_arr[None, :], (n, 1))
+        # Optionally clip inside arena margins
+        goals_arr = jnp.clip(goals_arr, a_min=min_dist, a_max=max_side - min_dist)
+        return states, goals_arr
+
+    def get_goal(reset_input: Tuple[int, Array, Array, Array, Array, Array]):
+        # key, goal_candidate, agent_start_pos, all_goals, all_states
+        i_iter, this_key, _, agent, all_goals, all_states = reset_input
+        # Sample a random direction and set goal at fixed 2.0m from agent (first two dims)
+        ang_key, this_key = jr.split(this_key, 2)
+        theta = jr.uniform(ang_key, (), minval=0.0, maxval=2.0 * jnp.pi)
+        dir2 = jnp.array([jnp.cos(theta), jnp.sin(theta)], dtype=jnp.float32)
+        goal = jnp.zeros_like(agent)
+        goal = goal.at[:2].set(agent[:2] + 2.0 * dir2)
+        # Keep higher dims (if any) equal to agent to satisfy shape
+        if dim > 2:
+            goal = goal.at[2:].set(agent[2:])
+        i_iter += 1
+        return (i_iter, this_key, goal, agent, all_goals, all_states)
+
+    def non_valid_goal(reset_input: Tuple[int, Array, Array, Array, Array, Array]):
+        # key, goal_candidate, agent_start_pos, all_goals, all_states
+        i_iter, _, goal, agent, all_goals, all_states = reset_input
+        
+        # Check distance to other valid goals (non-zero)
+        valid_goals = jnp.any(all_goals != 0, axis=1)
+        goal_distances = jnp.linalg.norm(all_goals - goal, axis=1)
+        goal_distances = jnp.where(valid_goals, goal_distances, jnp.ones_like(goal_distances) * 1e10)
+        dist_min_goals = jnp.min(goal_distances)
+        collide_with_goals = dist_min_goals < min_dist
+
+        # Enforce fixed distance 2.0 from the agent that owns this goal (first two dims)
+        dist_to_agent = jnp.linalg.norm(goal[:2] - agent[:2])
+        fixed_dist_ok = jnp.abs(dist_to_agent - 2.0) < 1e-3
+
+        # Combine collision checks
+        collide = collide_with_goals
+        
+        # Require at least 0.3m clearance from obstacles
+        inside = inside_obstacles(goal, obstacles, r= min_dist)
+        outside = jnp.any(goal < min_dist) | jnp.any(goal > max_side-min_dist)
+        too_long = np.array(False, dtype=bool)
+        
+        valid = (fixed_dist_ok & ~collide & ~inside & ~outside & ~too_long) | (i_iter >= max_iter)
+        out = ~valid
+        assert out.shape == tuple() and out.dtype == jnp.bool_
+        return out
+
+    def reset_body(reset_input: Tuple[int, Array, Array, Array]):
+        # agent_id, key, states, goals
+        agent_id, this_key, all_states, all_goals = reset_input
+        # For fixed state, take the pre-filled state as agent position
+        agent_pos = all_states[agent_id]
+        _, goal_key = jr.split(this_key, 2)
+        # Initial candidate at fixed distance 2.0
+        theta0 = jr.uniform(goal_key, (), minval=0.0, maxval=2.0 * jnp.pi)
+        dir2_0 = jnp.array([jnp.cos(theta0), jnp.sin(theta0)], dtype=jnp.float32)
+        goal_candidate = jnp.zeros((dim,), dtype=jnp.float32).at[:2].set(agent_pos[:2] + 2.0 * dir2_0)
+        if dim > 2:
+            goal_candidate = goal_candidate.at[2:].set(agent_pos[2:])
+
+        n_iter_goal, _, goal_candidate, _, _, _ = while_loop(
+            cond_fun=non_valid_goal, body_fun=get_goal,
+            init_val=(0, goal_key, goal_candidate, agent_pos, all_goals, all_states)
+        )
+        all_goals = all_goals.at[agent_id].set(goal_candidate)
+        agent_id += 1
+
+        # if no solution is found, start over
+        agent_id = (1 - (n_iter_goal >= max_iter)) * agent_id
+        all_states = (1 - (n_iter_goal >= max_iter)) * all_states
+        all_goals = (1 - (n_iter_goal >= max_iter)) * all_goals
 
         return agent_id, this_key, all_states, all_goals
 

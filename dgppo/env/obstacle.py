@@ -11,6 +11,7 @@ RECTANGLE = jnp.zeros(1)
 CUBOID = jnp.ones(1)
 SPHERE = jnp.ones(1) * 2
 CIRCLE = jnp.array(3)  # Define a new obstacle type
+POLYGON = jnp.ones(1) * 4
 
 
 class Obstacle(Protocol):
@@ -104,6 +105,82 @@ class Rectangle(NamedTuple):
         alphas = valids * alphas + (1 - valids) * 1e6
         alphas = jnp.min(alphas)  # reduce the polygon edges dimension
         return alphas
+
+
+class Polygon(NamedTuple):
+    """Arbitrary 2-D simple polygon with a fixed, padded vertex count.
+
+    ``points`` holds ``max_verts`` vertices; a polygon with fewer real vertices
+    pads by repeating its *last* real vertex.  Edges are taken as
+    ``(points[i], points[i - 1])`` (same convention as ``Rectangle``), so the
+    padding produces the correct closing edge plus zero-length edges, which are
+    masked out everywhere below.
+    """
+    type: ObsType
+    center: Pos2d
+    points: Array  # (max_verts, 2)
+
+    @staticmethod
+    def create(points: Array, center: Pos2d = None) -> "Polygon":
+        points = jnp.asarray(points)
+        if center is None:
+            center = points.mean(axis=0)
+        return Polygon(POLYGON, center, points)
+
+    @property
+    def n(self) -> int:
+        return self.center.shape[0]
+
+    def _edges(self) -> tuple[Array, Array, Array, Array, Array]:
+        """Returns x3, y3, x4, y4 of every edge plus a non-degenerate mask."""
+        x3 = self.points[:, 0]
+        y3 = self.points[:, 1]
+        prev = jnp.roll(self.points, 1, axis=0)
+        x4 = prev[:, 0]
+        y4 = prev[:, 1]
+        ok = (jnp.abs(x4 - x3) + jnp.abs(y4 - y3)) > 1e-9
+        return x3, y3, x4, y4, ok
+
+    def inside(self, point: Pos2d, r: Radius = 0.) -> BoolScalar:
+        x, y = point[0], point[1]
+        x3, y3, x4, y4, ok = self._edges()
+
+        # even-odd crossing test against the horizontal ray y = const, x -> +inf
+        straddles = jnp.logical_and((y3 > y) != (y4 > y), ok)
+        dy = y4 - y3
+        dy_safe = jnp.where(jnp.abs(dy) < 1e-12, 1e-12, dy)
+        x_cross = x3 + (y - y3) * (x4 - x3) / dy_safe
+        crossings = jnp.logical_and(straddles, x < x_cross)
+        is_in = (jnp.sum(crossings) % 2) == 1
+
+        # inflate by r: also count points within r of the boundary
+        ex, ey = x4 - x3, y4 - y3
+        l2 = jnp.maximum(ex ** 2 + ey ** 2, 1e-12)
+        t = jnp.clip(((x - x3) * ex + (y - y3) * ey) / l2, 0., 1.)
+        dist = jnp.sqrt((x - (x3 + t * ex)) ** 2 + (y - (y3 + t * ey)) ** 2)
+        dist = jnp.where(ok, dist, jnp.inf)
+        near_boundary = jnp.min(dist) <= r
+
+        return jnp.logical_or(is_in, near_boundary)
+
+    def raytracing(self, start: Pos2d, end: Pos2d) -> Array:
+        x1, y1 = start[0], start[1]
+        x2, y2 = end[0], end[1]
+        x3, y3, x4, y4, ok = self._edges()
+
+        # same linear system as Rectangle.raytracing, but degenerate (padded)
+        # edges give det == 0, which the sign() trick there would turn into a
+        # divide-by-zero, so they are clipped and masked explicitly.
+        det = (x1 - x2) * (y4 - y3) - (y1 - y2) * (x4 - x3)
+        det = jnp.where(jnp.abs(det) < 1e-7, 1e-7, det)
+        alphas = ((y4 - y3) * (x1 - x3) - (x4 - x3) * (y1 - y3)) / det
+        betas = (-(y1 - y2) * (x1 - x3) + (x1 - x2) * (y1 - y3)) / det
+        valids = jnp.logical_and(
+            jnp.logical_and(alphas <= 1, alphas >= 0),
+            jnp.logical_and(betas <= 1, betas >= 0))
+        valids = jnp.logical_and(valids, ok)
+        alphas = jnp.where(valids, alphas, 1e6)
+        return jnp.min(alphas)
 
 
 class Cuboid(NamedTuple):

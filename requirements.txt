@@ -1,7 +1,7 @@
-
+jax[cuda]>=0.4.26
 ipdb>=0.13.13
 wandb>=0.17.0
-flax>=0.8.3
+flax>=0.8.4
 jaxtyping>=0.2.28
 einops>=0.8.0
 matplotlib>=3.8.4

@@ -80,9 +80,8 @@ class Trainer:
         start_time = time()
 
         # preprocess the rollout function
-        
         init_rnn_state = self.algo.init_rnn_state
-        
+
         def test_fn_single(params, key):
             act_fn = ft.partial(self.algo.act, params=params)
             return test_rollout(
@@ -91,25 +90,22 @@ class Trainer:
                 init_rnn_state,
                 key
             )
-        
+
         test_fn = lambda params, keys: jax.vmap(ft.partial(test_fn_single, params))(keys)
         test_fn = jax.jit(test_fn)
-        
+
         # start training
         test_key = jr.PRNGKey(self.seed)
         assert self.n_env_test <= 1_000, 'n_env_test must be less than or equal to 1_000'
         test_keys = jr.split(test_key, 1_000)[:self.n_env_test]
-        
+
         pbar = tqdm(total=self.steps, ncols=80)
-        
-        
         for step in range(0, self.steps + 1):
             # evaluate the algorithm
             if step % self.eval_interval == 0:
                 eval_info = {}
                 test_rollouts: Rollout = test_fn(self.algo.params, test_keys)
-                total_reward = test_rollouts.rewards.sum(axis=-1)
-                # jax.debug.print("total_reward: {x}", x=total_reward)
+                total_reward = test_rollouts.rewards.sum(axis=1)
                 reward_min, reward_max = total_reward.min(), total_reward.max()
                 reward_mean = np.mean(total_reward)
                 reward_final = np.mean(test_rollouts.rewards[:, -1])

@@ -1,16 +1,40 @@
 import jax.numpy as jnp
+import jax
 
 from .jax_types import Pos2
+import jax.lax as lax
+
+def safe_assert(condition, message: str):
+    # Define a branch that does nothing if condition is True…
+    def ok(_):
+        return None
+    # …and a branch that raises an error if condition is False.
+    def not_ok(_):
+        # Raise an error outside of JIT when the branch is executed.
+        raise ValueError(message)
+    # Use lax.cond to select between the branches.
+    # Note: When running under JIT, the branch not taken will not be executed.
+    lax.cond(condition, ok, not_ok, operand=None)
 
 
 class Shape:
     def moment_of_inertia(self, mass: float):
         raise NotImplementedError
 
+# class Object(Shape):
+#     def __init__(self, length: float = 0.3):
+#         super().__init__()
+#            assert length > 0, f"Length must be > 0, got {length}"
+#         self._length = length  # length from center to vertex
+#         self.hollow = False    # triangles are always hollow in this case
+from jax import core
+
 class Object(Shape):
     def __init__(self, length: float = 0.3):
         super().__init__()
-        assert length > 0, f"Length must be > 0, got {length}"
+        # Only perform the check if length is a concrete value.
+        if not isinstance(length, core.Tracer):
+            assert length > 0, f"Length must be > 0, got {length}"
         self._length = length  # length from center to vertex
         self.hollow = False    # triangles are always hollow in this case
 

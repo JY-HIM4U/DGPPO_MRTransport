@@ -20,6 +20,7 @@ from ..trainer.utils import centered_norm
 from ..utils.typing import EdgeIndex, Pos2d, Pos3d, Array
 from ..utils.utils import merge01, tree_index, MutablePatchCollection, save_anim
 from dgppo.env.obstacle import Cuboid, Sphere, Obstacle, Rectangle
+from dgppo.env.obstacle import Polygon as ObsPolygon  # `Polygon` above is matplotlib's patch
 
 
 def plot_graph(
@@ -174,7 +175,7 @@ def get_sphere_collection(
 def get_obs_collection(
         obstacles: Obstacle, color: str, alpha: float
 ):
-    if isinstance(obstacles, Rectangle):
+    if isinstance(obstacles, (Rectangle, ObsPolygon)):
         n_obs = len(obstacles.center)
         obs_polys = [Polygon(obstacles.points[ii]) for ii in range(n_obs)]
         obs_col = PatchCollection(obs_polys, color="#8a0000", alpha=1.0, zorder=99)

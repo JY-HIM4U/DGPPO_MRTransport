@@ -1,3 +1,65 @@
+# Multi-Robot Collaborative Transport (RFZF)
+
+Code release for the RFZF multi-robot collaborative transport experiments.
+A team of 3-5 holonomic robots is attached by compliant (spring) links to a
+rigid payload and must transport it to a goal pose through an unknown,
+LiDAR-sensed obstacle field.
+
+This repository is **derived from** [MIT-REALM/dgppo](https://github.com/MIT-REALM/dgppo)
+(ICLR 2025, Zhang et al.), which provides the DGPPO learning backbone. The
+upstream README is retained in full below. Our contribution is the environment,
+its physics, and the training/eval setup described here; all DGPPO algorithm
+code is upstream's, under upstream's LICENSE.
+
+<!-- TODO(author): add paper title, venue, and BibTeX citation once published. -->
+
+## What is new relative to upstream DGPPO
+
+| Path | Role |
+| --- | --- |
+| `dgppo/env/vmas_lidar/vmas_collaborative_transport_lidar.py` | The environment: payload dynamics, spring-coupled agents, LiDAR observation, reward and cost terms |
+| `dgppo/env/vmas_lidar/vmas_collaborative_transport_lidar_determined.py` | Fixed-initial-state variant used for deterministic evaluation |
+| `dgppo/env/vmas_lidar/physax/` | Forked 2-D rigid-body physics + raycasting (`world.py`, `entity.py`, `geometry.py`, `shapes.py`, `raycast.py`) |
+| `dgppo/env/obstacle.py` | Adds `Circle` and `Polygon` obstacles |
+| `dgppo/env/utils.py` | `get_lidar` extended to circles/polygons; `get_node_goal_rng` reworked for boundary margins and minimum agent-goal travel |
+| `dgppo/env/__init__.py` | Environment registration plus the reward / stiffness / vertex-constraint knobs on `make_env` |
+| `train.py`, `test.py`, `test_determined.py` | CLI flags for the above; evaluation and CSV/plot export |
+
+## Reproducing the paper run
+
+Team size is **resampled every episode** in `[--min-num-agents, --max-num-agents]`,
+which is what makes the policy transfer across team sizes at evaluation time.
+
+```bash
+python train.py \
+  --env VMASCollaborativeTransportLidar --algo dgppo \
+  -n 5 --obs 5 --n-rays 32 \
+  --min-num-agents 3 --max-num-agents 5 \
+  --min-stiffness 0.05 --max-stiffness 0.3 \
+  --agent-vertex-constraint 0.2 \
+  --steps 200000 --n-env-train 128 --n-env-test 32 \
+  --batch-size 16384 --rnn-step 16 \
+  --eval-interval 50 --save-interval 50 --seed 0
+```
+
+Note that `--max-stiffness 0.3` and `--agent-vertex-constraint 0.2` differ from
+the defaults in `make_env`; pass them explicitly. Every run writes the full
+resolved configuration to `<log_dir>/.../config.yaml`.
+
+Evaluate a trained policy (`--n` may differ from the training value, to test
+generalization across team sizes):
+
+```bash
+python test.py --path <log_dir>/VMASCollaborativeTransportLidar/dgppo/<run> --epi 5 -n 5
+```
+
+## Environment
+
+Tested with Python 3.10 and JAX 0.6.2 (CPU and CUDA). See
+[Dependencies](#dependencies) below.
+
+---
+
 <div align="center">
 
 # DGPPO

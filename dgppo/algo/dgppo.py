@@ -301,7 +301,7 @@ class DGPPO(InforMARLLagr):
             bT_rnn_states: Array,
             rnn_chunk_ids: Array
     ) -> Tuple[TrainState, dict]:
-        bcT_rollout = jax.tree_map(lambda x: x[:, rnn_chunk_ids], det_rollout)  # (n_env, n_chunk, T, ...)
+        bcT_rollout = jax.tree.map(lambda x: x[:, rnn_chunk_ids], det_rollout)  # (n_env, n_chunk, T, ...)
         bcTah_Qh_det = bTah_Qh_det[:, rnn_chunk_ids]
 
         def get_loss(Vh_params):

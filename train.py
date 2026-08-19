@@ -5,7 +5,7 @@ import ipdb
 import numpy as np
 import wandb
 import yaml
-import jax
+
 from dgppo.algo import make_algo
 from dgppo.env import make_env
 from dgppo.trainer.trainer import Trainer
@@ -24,7 +24,6 @@ def train(args):
         os.environ["WANDB_MODE"] = "disabled"
         os.environ["JAX_DISABLE_JIT"] = "True"
 
-    
     # create environments
     env = make_env(
         env_id=args.env,
@@ -32,7 +31,17 @@ def train(args):
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
-        local_only=args.localonly,
+        min_num_agents=args.min_num_agents,
+        max_num_agents=args.max_num_agents,
+        reward_dist2goal=args.reward_dist2goal,
+        reward_dist2goal_theta=args.reward_dist2goal_theta,
+        reward_dist2goal_threshold=args.reward_dist2goal_threshold,
+        reward_action_norm=args.reward_action_norm,
+        reward_agent_vertex_dists=args.reward_agent_vertex_dists,
+        reward_action_diff=args.reward_action_diff,
+        agent_vertex_constraint=args.agent_vertex_constraint,
+        min_stiffness=args.min_stiffness,
+        max_stiffness=args.max_stiffness,
     )
     env_test = make_env(
         env_id=args.env,
@@ -40,10 +49,20 @@ def train(args):
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
-        local_only=args.localonly,
+
+        min_num_agents=args.min_num_agents,
+        max_num_agents=args.max_num_agents,
+        reward_dist2goal=args.reward_dist2goal,
+        reward_dist2goal_theta=args.reward_dist2goal_theta,
+        reward_dist2goal_threshold=args.reward_dist2goal_threshold,
+        reward_action_norm=args.reward_action_norm,
+        reward_agent_vertex_dists=args.reward_agent_vertex_dists,
+        reward_action_diff=args.reward_action_diff,
+        agent_vertex_constraint=args.agent_vertex_constraint,
+        min_stiffness=args.min_stiffness,
+        max_stiffness=args.max_stiffness,
     )
 
-    
     # create algorithm
     algo = make_algo(
         algo=args.algo,
@@ -77,7 +96,7 @@ def train(args):
         lr_lagr=args.lr_lagr,
         train_steps=args.steps,
         cbf_schedule=not args.no_cbf_schedule,
-        cost_schedule=args.cost_schedule
+        cost_schedule=args.cost_schedule,
     )
 
     # Generate a 4 letter random identifier for the run.
@@ -129,7 +148,7 @@ def train(args):
         with open(f"{log_dir}/config.yaml", "w") as f:
             yaml.dump(args, f)
             yaml.dump(algo.config, f)
-    
+
     # start training
     trainer.train()
 
@@ -145,7 +164,7 @@ def main():
 
     # custom arguments
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--steps", type=int, default=200000)
+    parser.add_argument("--steps", type=int, default=100000)
     parser.add_argument("--name", type=str, default=None)
     parser.add_argument("--debug", action="store_true", default=False)
     parser.add_argument("--cost-weight", type=float, default=0.)
@@ -174,17 +193,26 @@ def main():
     parser.add_argument("--rnn-step", type=int, default=16)
 
     # default arguments
-    parser.add_argument("--n-env-train", type=int, default=int(128/4))
-    parser.add_argument("--batch-size", type=int, default=int(16384/4))
+    parser.add_argument("--n-env-train", type=int, default=int(128))
+    parser.add_argument("--batch-size", type=int, default=int(16384))
     parser.add_argument("--n-env-test", type=int, default=32)
     parser.add_argument("--log-dir", type=str, default="./logs")
     parser.add_argument("--eval-interval", type=int, default=50)
     parser.add_argument("--eval-epi", type=int, default=1)
     parser.add_argument("--save-interval", type=int, default=50)
 
-    # Add this to the parser arguments in train.py
-    parser.add_argument('--localonly', action='store_true', default=False,
-                        help='If True, agents only have local information without global object state')
+    parser.add_argument("--min-num-agents", type=int, default=3)
+    parser.add_argument("--max-num-agents", type=int, default=5)
+
+    parser.add_argument("--reward-dist2goal", type=float, default=0.06)
+    parser.add_argument("--reward-dist2goal-theta", type=float, default=0.06)
+    parser.add_argument("--reward-dist2goal-threshold", type=float, default=0.001)
+    parser.add_argument("--reward-action-norm", type=float, default=0.1)
+    parser.add_argument("--reward-agent-vertex-dists", type=float, default=0.1)
+    parser.add_argument("--reward-action-diff", type=float, default=0.1)
+    parser.add_argument("--agent-vertex-constraint", type=float, default=0.2)
+    parser.add_argument("--min-stiffness", type=float, default=0.05)
+    parser.add_argument("--max-stiffness", type=float, default=0.30)
 
     args = parser.parse_args()
     train(args)

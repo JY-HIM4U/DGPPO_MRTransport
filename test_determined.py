@@ -57,17 +57,6 @@ def test(args):
         step = args.step
     print("step: ", step)
 
-    # Forward additional algorithm-specific knobs if recorded in the saved
-    # config. Required for ScalMAPPOL (which overrides GNN depths from kappa)
-    # and MACPO (trust-region knobs). All forwarded fields are gated on
-    # hasattr so older configs without them are untouched.
-    extra_kwargs = {}
-    for k in ("kappa", "neighbor_mode", "target_kl", "cost_limit",
-              "cg_iters", "cg_damping", "backtrack_iters", "backtrack_coeff",
-              "fraction_coef", "macpo_eps", "ls_subsample_frac"):
-        if hasattr(config, k):
-            extra_kwargs[k] = getattr(config, k)
-
     algo = make_algo(
         algo=config.algo,
         env=env,
@@ -87,7 +76,6 @@ def test(args):
         use_rnn=config.use_rnn,
         rnn_layers=config.rnn_layers,
         use_lstm=config.use_lstm,
-        **extra_kwargs,
     )
     algo.load(model_path, step)
     if args.stochastic:
@@ -125,17 +113,6 @@ def test(args):
     rollouts = []
     is_unsafes = []
     rates = []
-    success_thresholds = [0.1, 0.2, 0.3, 0.5]
-    success_hits = {thr: [] for thr in success_thresholds}
-    suffix = f"_{args.num_agents}" if args.num_agents is not None else ""
-    seed_suffix = f"_seed{args.seed}"
-    success_log_path = os.path.join(path, f"test_log_successrate{suffix}{seed_suffix}.csv")
-    if args.log and not os.path.exists(success_log_path):
-        with open(success_log_path, "w") as f:
-            f.write(
-                "real_num_agents,episode,max_steps,area_size,n_obs,reward,cost,safe_rate,"
-                "success_0p1m,success_0p2m,success_0p3m,success_0p5m,min_dist_to_goal\n"
-            )
 
     # test
     for i_epi in range(args.epi):
@@ -149,124 +126,28 @@ def test(args):
         costs.append(epi_cost)
         rollouts.append(rollout)
         safe_rate = 1 - is_unsafes[-1].max(axis=0).mean()
-        env_states = rollout.graph.env_states
-        object_pos = np.asarray(env_states.object)[..., :2]
-        goal_pos = np.asarray(env_states.goal)[..., :2]
-
-        # Keep the time axis and drop singleton object/goal axis when present.
-        if object_pos.ndim == 3 and object_pos.shape[1] == 1:
-            object_pos = object_pos[:, 0, :]
-        if goal_pos.ndim == 3 and goal_pos.shape[1] == 1:
-            goal_pos = goal_pos[:, 0, :]
-
-        # Broadcast static goal over the rollout horizon if needed.
-        if goal_pos.ndim == 1:
-            goal_pos = np.broadcast_to(goal_pos[None, :], object_pos.shape)
-        elif goal_pos.ndim == 2 and object_pos.ndim == 2 and goal_pos.shape[0] == 1 and object_pos.shape[0] > 1:
-            goal_pos = np.repeat(goal_pos, object_pos.shape[0], axis=0)
-
-        dist_to_goal = np.linalg.norm(object_pos - goal_pos, axis=-1)
-        min_dist_to_goal = float(np.min(dist_to_goal))
-        epi_success = {}
-        for thr in success_thresholds:
-            reached = float(min_dist_to_goal <= thr)
-            success_hits[thr].append(reached)
-            epi_success[thr] = reached
-
-        real_num_agents = int(np.array(rollout.graph.env_states.real_num_agents[0]))
-        print(
-            f"epi: {i_epi}, n_real={real_num_agents}, reward: {epi_reward:.3f}, "
-            f"cost: {epi_cost:.3f}, safe rate: {safe_rate * 100:.3f}%, "
-            f"success@0.1/0.2/0.3/0.5m: "
-            f"{int(epi_success[0.1])}/{int(epi_success[0.2])}/{int(epi_success[0.3])}/{int(epi_success[0.5])}, "
-            f"min_dist={min_dist_to_goal:.3f}"
-        )
-        # Print environment info at t=0: goal pose, object pos, and obstacles (compact)
-        try:
-            gpos = np.asarray(env_states.goal_pos)
-            gpos0 = gpos[0] if gpos.ndim >= 1 else gpos
-            gvec = gpos0[0] if getattr(gpos0, "ndim", 0) >= 2 else gpos0
-            gvec = np.ravel(gvec)
-            gx, gy = float(gvec[0]), float(gvec[1])
-            gtheta = np.asarray(env_states.goal_theta)
-            gtheta0 = gtheta[0] if gtheta.ndim >= 1 else gtheta
-            gtheta_vec = np.ravel(gtheta0)
-            gtheta_s = float(gtheta_vec[0])
-            print(f"  goal: pos=({gx:.3f}, {gy:.3f}), theta={gtheta_s:.3f}")
-        except Exception:
-            print("  goal: unavailable")
-        try:
-            opos = np.asarray(env_states.object_pos)
-            opos0 = opos[0] if opos.ndim >= 1 else opos
-            ovec = opos0[0] if getattr(opos0, "ndim", 0) >= 2 else opos0
-            ovec = np.ravel(ovec)
-            ox, oy = float(ovec[0]), float(ovec[1])
-            print(f"  object: pos=({ox:.3f}, {oy:.3f})")
-        except Exception:
-            print("  object: unavailable")
-        obs = env_states.obstacle
-        if obs is None:
-            print("  obstacles: none")
-        else:
-            centers = np.asarray(getattr(obs, "center", []))
-            if centers.ndim >= 3:
-                centers = centers[0]
-            centers = np.atleast_2d(centers) if centers.size else np.zeros((0, 2))
-            n = int(centers.shape[0])
-            print(f"  obstacles: n={n}")
-            # Optional fields
-            radii = getattr(obs, "radius", None)
-            thetas = getattr(obs, "theta", None)
-            radii_arr = None if radii is None else np.asarray(radii)
-            thetas_arr = None if thetas is None else np.asarray(thetas)
-            if radii_arr is not None and radii_arr.ndim >= 2:
-                radii_arr = radii_arr[0]
-            if thetas_arr is not None and thetas_arr.ndim >= 2:
-                thetas_arr = thetas_arr[0]
-            # k = min(n, 5)
-            k = n
-            for i in range(k):
-                cx, cy = float(centers[i, 0]), float(centers[i, 1])
-                extra = ""
-                if radii_arr is not None and radii_arr.size > i:
-                    extra = f", r={float(radii_arr[i]):.3f}"
-                elif thetas_arr is not None and thetas_arr.size > i:
-                    extra = f", theta={float(thetas_arr[i]):.3f}"
-                print(f"    obs{i}: cx={cx:.3f}, cy={cy:.3f}{extra}")
-        # print(f"epi: {i_epi}, reward: {epi_reward:.3f}, cost: {epi_cost:.3f}, safe rate: {safe_rate * 100:.3f}%")
-        with open(success_log_path, "a") as f:
-            f.write(f"{real_num_agents},{i_epi},{env.max_episode_steps},"
-                    f"{env.area_size},{env.params['n_obs']},{epi_reward:.3f},{epi_cost:.3f},{safe_rate * 100:.3f},"
-                    f"{int(epi_success[0.1])},{int(epi_success[0.2])},{int(epi_success[0.3])},{int(epi_success[0.5])},"
-                    f"{min_dist_to_goal:.3f}\n")
+        print(f"epi: {i_epi}, reward: {epi_reward:.3f}, cost: {epi_cost:.3f}, safe rate: {safe_rate * 100:.3f}%")
 
         rates.append(np.array(safe_rate))
 
     is_unsafe = np.max(np.stack(is_unsafes), axis=1)
     safe_mean, safe_std = (1 - is_unsafe).mean(), (1 - is_unsafe).std()
-    success_mean = {thr: float(np.mean(success_hits[thr])) for thr in success_thresholds}
 
     print(
         f"reward: {np.mean(rewards):.3f}, min/max reward: {np.min(rewards):.3f}/{np.max(rewards):.3f}, "
         f"cost: {np.mean(costs):.3f}, min/max cost: {np.min(costs):.3f}/{np.max(costs):.3f}, "
-        f"safe_rate: {safe_mean * 100:.3f}%, "
-        f"success@0.1m: {success_mean[0.1] * 100:.2f}%, "
-        f"success@0.2m: {success_mean[0.2] * 100:.2f}%, "
-        f"success@0.3m: {success_mean[0.3] * 100:.2f}%, "
-        f"success@0.5m: {success_mean[0.5] * 100:.2f}%"
+        f"safe_rate: {safe_mean * 100:.3f}%"
     )
 
     # save results
     if args.log:
-        # with open(os.path.join(path, "test_log.csv"), "a") as f:
-        #     f.write(f"{env.num_agents},{args.epi},{env.max_episode_steps},"
-        #             f"{env.area_size},{env.params['n_obs']},"
-        #             f"{safe_mean * 100:.3f},{safe_std * 100:.3f}\n")
+        with open(os.path.join(path, "test_log.csv"), "a") as f:
+            f.write(f"{env.num_agents},{args.epi},{env.max_episode_steps},"
+                    f"{env.area_size},{env.params['n_obs']},"
+                    f"{safe_mean * 100:.3f},{safe_std * 100:.3f}\n")
         
         # Save rollout actions as CSV files
-        suffix = f"_{args.num_agents}" if args.num_agents is not None else ""
-        seed_suffix = f"_seed{args.seed}"
-        actions_dir = os.path.join(path, f"actions_successrate{suffix}{seed_suffix}")
+        actions_dir = os.path.join(path, "actions")
         if not os.path.exists(actions_dir):
             os.makedirs(actions_dir)
         

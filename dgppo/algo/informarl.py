@@ -362,7 +362,7 @@ class InforMARL(Algorithm):
             bT_rnn_states: Array,
             rnn_chunk_ids: Array
     ) -> Tuple[TrainState, dict]:
-        bcT_rollout = jax.tree_map(lambda x: x[:, rnn_chunk_ids], rollout)
+        bcT_rollout = jax.tree.map(lambda x: x[:, rnn_chunk_ids], rollout)
         bcT_targets = bT_targets[:, rnn_chunk_ids]
         bc_rnn_state_inits = jnp.zeros_like(bT_rnn_states[:, rnn_chunk_ids[:, 0]])  # use zeros rnn_state as init
 
@@ -406,16 +406,16 @@ class InforMARL(Algorithm):
             self, policy_train_state: TrainState, rollout: Rollout, bTa_A: Array, rnn_chunk_ids: Array
     ) -> Tuple[TrainState, dict]:
         # divide the rollout into chunks (n_env, n_chunks, T, ...)
-        bcT_graph = jax.tree_map(lambda x: x[:, rnn_chunk_ids], rollout.graph)
-        bcTa_action = jax.tree_map(lambda x: x[:, rnn_chunk_ids], rollout.actions)
-        bcTa_log_pis_old = jax.tree_map(lambda x: x[:, rnn_chunk_ids], rollout.log_pis)
-        bcTa_A = jax.tree_map(lambda x: x[:, rnn_chunk_ids], bTa_A)
+        bcT_graph = jax.tree.map(lambda x: x[:, rnn_chunk_ids], rollout.graph)
+        bcTa_action = jax.tree.map(lambda x: x[:, rnn_chunk_ids], rollout.actions)
+        bcTa_log_pis_old = jax.tree.map(lambda x: x[:, rnn_chunk_ids], rollout.log_pis)
+        bcTa_A = jax.tree.map(lambda x: x[:, rnn_chunk_ids], bTa_A)
         bc_rnn_state_inits = jnp.zeros_like(rollout.rnn_states[:, rnn_chunk_ids[:, 0]])  # use zeros rnn_state as init
 
         action_key = jr.fold_in(self.key, policy_train_state.step)
         action_keys = jr.split(action_key, rollout.actions.shape[0] * rollout.actions.shape[1]).reshape(
             rollout.actions.shape[:2] + (2,))
-        bcT_action_keys = jax.tree_map(lambda x: x[:, rnn_chunk_ids], action_keys)
+        bcT_action_keys = jax.tree.map(lambda x: x[:, rnn_chunk_ids], action_keys)
 
         def get_loss_(params):
             bcTa_log_pis, bcTa_policy_entropy, bcT_rnn_states, final_rnn_states = jax.vmap(jax.vmap(

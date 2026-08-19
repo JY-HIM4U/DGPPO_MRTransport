@@ -23,7 +23,7 @@ class Default:
     JOINT_FORCE = 130
     TORQUE_CONSTRAINT_FORCE = 1
 
-    DRAG = 0.25
+    DRAG = 0.0
     LINEAR_FRICTION = 0.0
     ANGULAR_FRICTION = 0.0
 
@@ -43,7 +43,9 @@ class World:
         collision_force: float = Default.COLLISION_FORCE,
         torque_constraint_force: float = Default.TORQUE_CONSTRAINT_FORCE,
         contact_margin: float = 1e-3,
-        num_agents: int = 3  # Add parameter to pass number of agents to World
+        real_num_agents: int = 3,
+        num_agents: int = 3,  # Add parameter to pass number of agents to World
+        stiffness: float = 0.3
     ):
         # world dims: no boundaries if none
         self._x_semidim = x_semidim
@@ -75,8 +77,9 @@ class World:
             {Line, Box},
             {Box, Box},
         ]
-
+        self.real_num_agents = real_num_agents
         self.num_agents = num_agents  # Store number of agents as instance variable
+        self.stiffness = stiffness
 
     @ft.partial(jax.jit, static_argnames=["self"])
     def step(self, entities: list[Entity]):
@@ -112,7 +115,6 @@ class World:
     def _integrate_state_pos(self, entity: Entity, substep: int, forces_dict: dict[Entity, Vec2]) -> Entity:
         # Compute translation
         vel = entity.state.vel
-
         if substep == 0:
             if entity.drag is not None:
                 vel = vel * (1 - entity.drag)
@@ -123,18 +125,17 @@ class World:
         force = forces_dict.get(entity, jnp.zeros(2))
         accel = force / entity.mass
 
-        # Debugging: Print force and mass
-        # if entity.shape.__class__ == Object:
-        #     jax.debug.print("Object force: {}", force)
-        #     jax.debug.print("Object mass: {}", entity.mass)
-        #     jax.debug.print("Object acceleration: {}", accel)
-
-        vel = vel + accel * self.sub_dt
+        # Debug the velocity update step by step
+        vel_update = accel * self.sub_dt
+        
+        # Store the old velocity for comparison
+        old_vel = vel
+        vel = vel + vel_update
+        
         if entity.max_speed is not None:
             vel = clamp_with_norm(vel, entity.max_speed)
         if entity.v_range is not None:
             vel = vel.clip(-entity.v_range, entity.v_range)
-
         new_pos = entity.state.pos + vel * self.sub_dt
 
         new_pos_x = new_pos[..., 0]
@@ -268,59 +269,128 @@ class World:
         # Return the total contact forces and torques for each agent.
         return {"contact_forces": contact_forces_dict, "contact_torques": contact_torques_dict}
     def _agent_object_interaction(
-        self, a_o: list[tuple[Entity, Entity]], forces_dict: dict[Entity, Vec2], torques_dict: dict[Entity, Vec1]
+        self,
+        a_o: list[tuple[Entity, Entity]],
+        forces_dict: dict[Entity, jnp.ndarray],
+        torques_dict: dict[Entity, jnp.ndarray],
     ):
         if len(a_o) == 0:
             return
 
-        for agent, obj in a_o:
-            agent_pos = agent.state.pos
-            object_pos = obj.state.pos
-            object_angle = obj.state.rot[0]
-            object_length = obj.shape.length
+        # Precompute arrays for all pairs
+        n_pairs = len(a_o)
+        # Extract agent indices (assumed precomputed from agent names)
+        agent_indices = jnp.array([int(agent.name.split('_')[-1]) for agent, _ in a_o], dtype=jnp.int32)
+        # (n_pairs, 2)
+        agent_pos = jnp.stack([agent.state.pos for agent, _ in a_o], axis=0)
+        obj_pos = jnp.stack([obj.state.pos for _, obj in a_o], axis=0)
+        obj_angle = jnp.array([obj.state.rot[0] for _, obj in a_o], dtype=jnp.float32)
+        obj_length = jnp.array([obj.shape.length for _, obj in a_o], dtype=jnp.float32)
 
-            # Calculate the positions of the vertices
-            base_angles = jnp.array([i * 2 * jnp.pi / self.num_agents for i in range(self.num_agents)])
-            vertices = object_pos + object_length * jnp.stack(
-                [jnp.cos(object_angle + base_angles), jnp.sin(object_angle + base_angles)], axis=-1
-            )
+        # Compute vertices for each object.
+        # Base angles: fixed shape (self.num_agents,)
+        base_angles = jnp.arange(self.num_agents) * (2 * jnp.pi / self.real_num_agents)
+        # Broadcast to each pair: shape (n_pairs, self.num_agents)
+        base_angles = jnp.broadcast_to(base_angles, (n_pairs, self.num_agents))
+        # Expand obj_angle to (n_pairs, 1)
+        obj_angle_exp = jnp.expand_dims(obj_angle, -1)
+        # Compute vertices for each pair: shape (n_pairs, self.num_agents, 2)
+        vertices = obj_pos[:, None, :] + obj_length[:, None, None] * jnp.stack(
+            [jnp.cos(obj_angle_exp + base_angles), jnp.sin(obj_angle_exp + base_angles)],
+            axis=-1,
+        )
 
-            # Use the agent's name to determine the index
-            agent_index = int(agent.name.split('_')[-1])  # Extract index from agent's name
-            vertex_pos = vertices[agent_index]
+        # Gather the vertex corresponding to each agent's index.
+        # chosen_vertices: shape (n_pairs, 2)
+        chosen_vertices = vertices[jnp.arange(n_pairs), agent_indices]
 
-            # Calculate spring force for this agent
-            stiffness = 10.0
-            delta_pos = agent_pos - vertex_pos
-            dist = jnp.linalg.norm(delta_pos)
+        # Compute the spring forces and torque vectorized.
+        # stiffness = self.stiffness
+        delta = agent_pos - chosen_vertices  # (n_pairs, 2)
+        dist = jnp.linalg.norm(delta, axis=-1, keepdims=True)  # (n_pairs, 1)
+        force_on_vertex = self.stiffness * dist * (delta / (dist + 1e-8))  # (n_pairs, 2)
+        force_on_agent = -force_on_vertex
 
-            # Force direction (normalized delta_pos)
-            force_direction = delta_pos / (dist + 1e-8)
+        # Compute torque via 2D cross product: scalar per pair
+        r_vector = chosen_vertices - obj_pos  # (n_pairs, 2)
+        torque = r_vector[:, 0] * force_on_vertex[:, 1] - r_vector[:, 1] * force_on_vertex[:, 0]  # (n_pairs,)
 
-            # Calculate force
-            force_magnitude = stiffness * dist
-            force_on_vertex = force_magnitude * force_direction
-            force_on_agent = -force_on_vertex
+        # Create a mask: valid if agent index is less than self.real_num_agents.
+        valid_mask = (agent_indices < self.real_num_agents).astype(jnp.float32)  # shape (n_pairs,)
+        
+        # Apply mask to forces and torque.e
+        force_on_agent = force_on_agent * valid_mask[:, None]
+        force_on_vertex = force_on_vertex * valid_mask[:, None]
+        # jax.debug.print("force_on_agent: {x}", x=force_on_agent)
+        torque = torque * valid_mask
 
-            # Calculate torque (2D cross product)
-            r_vector = vertex_pos - object_pos
-            torque = r_vector[0] * force_on_vertex[1] - r_vector[1] * force_on_vertex[0]
-
-            # Apply forces and torques
+        # Update forces and torques dictionaries in a final (non-jitted) pass.
+        for agent, obj in (a_o):
+            # jax.debug.print("agent: {x}", x=agent)
+            i = int(agent.name.split('_')[-1])  # Extract index from agent's name
             if agent.movable:
-                if agent not in forces_dict:
-                    forces_dict[agent] = jnp.zeros(2, dtype=jnp.float32)
-                forces_dict[agent] = forces_dict[agent] + force_on_agent
-
+                forces_dict[agent] = forces_dict.get(agent, jnp.zeros(2, dtype=jnp.float32)) + force_on_agent[i]
             if obj.movable:
-                if obj not in forces_dict:
-                    forces_dict[obj] = jnp.zeros(2, dtype=jnp.float32)
-                forces_dict[obj] = forces_dict[obj] + force_on_vertex
-
+                forces_dict[obj] = forces_dict.get(obj, jnp.zeros(2, dtype=jnp.float32)) + force_on_vertex[i]
             if obj.rotatable:
-                if obj not in torques_dict:
-                    torques_dict[obj] = jnp.zeros(1, dtype=jnp.float32)
-                torques_dict[obj] = torques_dict[obj] + jnp.array([torque], dtype=jnp.float32)
+                torques_dict[obj] = torques_dict.get(obj, jnp.zeros(1, dtype=jnp.float32)) + jnp.array([torque[i]], dtype=jnp.float32)
+        
+    # def _agent_object_interaction(
+    #     self, a_o: list[tuple[Entity, Entity]], forces_dict: dict[Entity, Vec2], torques_dict: dict[Entity, Vec1]
+    # ):
+    #     if len(a_o) == 0:
+    #         return
+
+    #     for agent, obj in a_o:
+    #         agent_pos = agent.state.pos
+    #         object_pos = obj.state.pos
+    #         object_angle = obj.state.rot[0]
+    #         object_length = obj.shape.length
+
+    #         # Calculate the positions of the vertices
+    #         base_angles = jnp.array([i * 2 * jnp.pi / self.real_num_agents for i in range(self.num_agents)])
+    #         vertices = object_pos + object_length * jnp.stack(
+    #             [jnp.cos(object_angle + base_angles), jnp.sin(object_angle + base_angles)], axis=-1
+    #         )
+
+    #         # Use the agent's name to determine the index
+    #         agent_index = int(agent.name.split('_')[-1])  # Extract index from agent's name
+    #         if agent_index >= self.real_num_agents:
+    #             continue
+    #         vertex_pos = vertices[agent_index]
+
+    #         # Calculate spring force for this agent
+    #         stiffness = 10.0
+    #         delta_pos = agent_pos - vertex_pos
+    #         dist = jnp.linalg.norm(delta_pos)
+
+    #         # Force direction (normalized delta_pos)
+    #         force_direction = delta_pos / (dist + 1e-8)
+
+    #         # Calculate force
+    #         force_magnitude = stiffness * dist
+    #         force_on_vertex = force_magnitude * force_direction
+    #         force_on_agent = -force_on_vertex
+
+    #         # Calculate torque (2D cross product)
+    #         r_vector = vertex_pos - object_pos
+    #         torque = r_vector[0] * force_on_vertex[1] - r_vector[1] * force_on_vertex[0]
+
+    #         # Apply forces and torques
+    #         if agent.movable:
+    #             if agent not in forces_dict:
+    #                 forces_dict[agent] = jnp.zeros(2, dtype=jnp.float32)
+    #             forces_dict[agent] = forces_dict[agent] + force_on_agent
+
+    #         if obj.movable:
+    #             if obj not in forces_dict:
+    #                 forces_dict[obj] = jnp.zeros(2, dtype=jnp.float32)
+    #             forces_dict[obj] = forces_dict[obj] + force_on_vertex
+
+    #         if obj.rotatable:
+    #             if obj not in torques_dict:
+    #                 torques_dict[obj] = jnp.zeros(1, dtype=jnp.float32)
+    #             torques_dict[obj] = torques_dict[obj] + jnp.array([torque], dtype=jnp.float32)
 
     def _sphere_sphere_collision(
         self, s_s: list[tuple[Entity, Entity]], forces_dict: dict[Entity, Vec2], torques_dict: dict[Entity, Vec1]
