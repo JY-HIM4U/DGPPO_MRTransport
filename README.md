@@ -57,9 +57,9 @@ of which the nearest 8 returns enter the graph.
 
 <div align="center">
 
-<img src="./media/transport/sim_3drones.gif" alt="Simulation with 3 drones" width="43%"/>
+<img src="./media/transport/sim_3_drones.gif" alt="Simulation with 3 drones" width="43%"/>
 &nbsp;&nbsp;
-<img src="./media/transport/sim_5drones.gif" alt="Simulation with 5 drones" width="43%"/>
+<img src="./media/transport/sim_5_drones.gif" alt="Simulation with 5 drones" width="43%"/>
 
 *One policy, two team sizes: 3 drones (left) and 5 drones (right), both rendered
 from the checkpoint in `pretrained/`. Coloured discs are drones, the small
